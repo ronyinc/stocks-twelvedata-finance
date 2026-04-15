@@ -19,7 +19,7 @@ def fetch_all_stock_data() -> str | None:
 
         params = {
             "interval" : "1day",
-            "start_date" : "2026-03-01",
+            "start_date" : "2026-01-01",
             "end_date" : "2026-03-31",
             "symbol" : "AAPL,GOOG,NVDA"
         }
