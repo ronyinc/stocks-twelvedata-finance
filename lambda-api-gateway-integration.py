@@ -29,21 +29,13 @@ def rows_to_csv_string(rows, fieldnames):
     writer.writerows(rows)
     return buffer.getvalue()
 
-
 def parse_event_input(event):
-    """
-    Supports:
-    1. Direct Lambda test payloads
-    2. API Gateway HTTP API payloads (query params)
-    3. API Gateway HTTP API payloads (JSON body)
-    """
-
     event = event or {}
 
     # Defaults
-    symbols = ["AAPL", "GOOG", "NVDA"]
-    start_date = "2026-01-01"
-    end_date = "2026-03-31"
+    symbols = ["AAPL", "GOOG", "NVDA", "AMD", "AVGO", "META", "AMZN", "MSFT", "TSLA"]   #extract in batches. 5 stocks in one batch.
+    start_date = "2025-05-01"
+    end_date = "2026-04-30"
 
     # Case 1: Direct Lambda invocation payload
     if "symbols" in event or "start_date" in event or "end_date" in event:
@@ -52,27 +44,42 @@ def parse_event_input(event):
         end_date = event.get("end_date", end_date)
         return symbols, start_date, end_date
 
+    # Case 2: API Gateway query params
+    query_params = event.get("queryStringParameters") or {}
+
+    if query_params:
+        symbols_param = query_params.get("symbols")
+
+        if symbols_param:
+            symbols = [s.strip() for s in symbols_param.split(",") if s.strip()]
+
+        start_date = query_params.get("start_date", start_date)
+        end_date = query_params.get("end_date", end_date)
+
+        return symbols, start_date, end_date
 
     # Case 3: API Gateway JSON body
-    body = event.get("body")          # with api-gateway the body comes as a string.
+    body = event.get("body")
+
     if body:
-        if event.get("isBase64Encoded"):     #sometimes aws sends the body encoded
-            body = base64.b64decode(body).decode("utf-8")   #converst bases64 into bytes and then back to string.the body now becomes decodable json string
+        if event.get("isBase64Encoded"):
+            body = base64.b64decode(body).decode("utf-8")
 
         try:
-            body_json = json.loads(body)      # the json string gets converted into python dictionary
+            body_json = json.loads(body)
         except json.JSONDecodeError:
-            raise ValueError("Request body must be valid JSON")  # for invalid json
+            raise ValueError("Request body must be valid JSON")
 
         symbols = body_json.get("symbols", symbols)
         start_date = body_json.get("start_date", start_date)
         end_date = body_json.get("end_date", end_date)
+
         return symbols, start_date, end_date
 
-    return symbols, start_date, end_date
-
+    return symbols, start_date, end_date    
 
 def lambda_handler(event, context):
+    print(json.dumps(event, indent=2))
     try:
         symbols, start_date, end_date = parse_event_input(event)
 
@@ -108,7 +115,19 @@ def lambda_handler(event, context):
         all_rows = []
         stock_dim_rows = []
 
+        if isinstance(data, dict) and data.get("status") == "error":
+            raise ValueError(f"Twelve Data API error: {data}")
+
         for symbol, stock_data in data.items():
+
+            if not isinstance(stock_data, dict):
+                print(f"Skipping unexpected API field: {symbol} = {stock_data}")
+                continue
+
+            if stock_data.get("status") == "error":
+                print(f"Skipping failed symbol {symbol}: {stock_data}")
+                continue
+
             meta = stock_data.get("meta", {})
             values = stock_data.get("values", [])
 
